@@ -101,6 +101,7 @@ describe('compressionScopeMarkers', () => {
     assert.match(all, /\[BEGIN NEW SOURCE SLICE/);
     assert.match(all, /\[END NEW SOURCE SLICE\]/);
     assert.match(all, /Scope boundary: write only the events/);
+    assert.match(all, /earlier raw messages shown verbatim/);
     assert.match(all, /You are Probe\.\n\nApply this identity and attribution guidance silently/);
     assert.ok(recallIds(calls[0]!).length > 0, 'L1 keeps continuity recall');
   });

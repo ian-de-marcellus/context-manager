@@ -115,12 +115,14 @@ function applyL1SourceScope(instruction: string): string {
   return (
     `${COMPRESSION_SLICE_END}\n\n${instruction}\n\n` +
     'Scope boundary: write only the events and information newly present in ' +
-    'the raw source slice between the BEGIN and END markers above. Earlier ' +
-    'recalled L1/L2/Ln memories are context for continuity and attribution ' +
-    'only; do not summarize, restate, or open with them. Refer to an earlier ' +
+    'the raw source slice between the BEGIN and END markers above. Everything ' +
+    'earlier in the prompt — the head window, recalled L1/L2/Ln memories, and ' +
+    'any earlier raw messages shown verbatim (for example a span kept raw by a ' +
+    'pin) — is context for continuity and attribution only; do not summarize, ' +
+    'restate, or open with it, however prominent or recent it looks. Refer to an earlier ' +
     'event only when something in the new source slice directly acts on it, ' +
     'and include only the minimum context needed to explain that new ' +
-    'development. If a fact appears only in recalled memory and not in the ' +
+    'development. If a fact appears only before the BEGIN marker and not in the ' +
     'new source slice, omit it. This L1 must be additive, not a cumulative ' +
     'retelling.'
   );
