@@ -882,6 +882,15 @@ export interface AutobiographicalConfig {
   compressionMergeSourceOnly?: boolean;
   /** Use target-only merge request only on the final persisted merge attempt. Default false. */
   compressionMergeSourceOnlyFallback?: boolean;
+  /**
+   * Scope markers for compression prompts (default false). When on: the new L1
+   * source slice and each merge's source span are delimited with BEGIN/END
+   * markers plus a scope rule (recalled memories are context, not sources);
+   * merges replay no earlier recall pairs; and the identity reminder is asked
+   * to apply silently rather than be recited in the memory. Prevents memories
+   * from drifting into cumulative retellings of the recalled frontier.
+   */
+  compressionScopeMarkers?: boolean;
   /** Token target for each summary at any level (default: 2000) */
   summaryTargetTokens?: number;
   /** Token budget for L3 summaries in select() (default: 30000) */

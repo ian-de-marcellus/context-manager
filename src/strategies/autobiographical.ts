@@ -101,6 +101,64 @@ const COMPRESSION_MARKER =
   'The messages that follow are the slice of recent experience you are ' +
   'about to compress. After them, write the memory in your own voice.';
 
+// ---- compressionScopeMarkers (opt-in) ----
+// Recalled memories are replayed before a new L1 slice / merge span for
+// continuity, but they are context, not sources. Without an explicit boundary
+// the summarizer drifts into cumulative retelling: every new memory restates
+// the recalled frontier and old framing compounds into unrelated later ones.
+
+const SCOPED_COMPRESSION_MARKER =
+  `${COMPRESSION_MARKER} [BEGIN NEW SOURCE SLICE — THIS ALONE IS THE MEMORY SUBJECT]`;
+const COMPRESSION_SLICE_END = '[END NEW SOURCE SLICE]';
+
+function applyL1SourceScope(instruction: string): string {
+  return (
+    `${COMPRESSION_SLICE_END}\n\n${instruction}\n\n` +
+    'Scope boundary: write only the events and information newly present in ' +
+    'the raw source slice between the BEGIN and END markers above. Earlier ' +
+    'recalled L1/L2/Ln memories are context for continuity and attribution ' +
+    'only; do not summarize, restate, or open with them. Refer to an earlier ' +
+    'event only when something in the new source slice directly acts on it, ' +
+    'and include only the minimum context needed to explain that new ' +
+    'development. If a fact appears only in recalled memory and not in the ' +
+    'new source slice, omit it. This L1 must be additive, not a cumulative ' +
+    'retelling.'
+  );
+}
+
+const MERGE_SOURCE_MARKER =
+  'System: You will soon form a higher-level memory. The material that follows ' +
+  'is the chronological source span you are about to consolidate. ' +
+  '[BEGIN MERGE SOURCE SPAN — THIS ALONE IS THE MEMORY SUBJECT]';
+const MERGE_SOURCE_END = '[END MERGE SOURCE SPAN]';
+
+function applyMergeSourceScope(instruction: string): string {
+  return (
+    `${MERGE_SOURCE_END}\n\n${instruction}\n\n` +
+    'Scope boundary: write the new higher-level memory only from the material ' +
+    'between the BEGIN and END merge-source markers above. Everything earlier ' +
+    'in the prompt — including the head window and recalled L1/L2/Ln memories ' +
+    '— is context for continuity and attribution only; do not summarize, ' +
+    'restate, or open with it. Refer to an earlier event only when something ' +
+    'inside the marked source span directly acts on it, and include only the ' +
+    'minimum context needed to explain that development. If a fact appears ' +
+    'only before the BEGIN marker, omit it. This merge must consolidate its ' +
+    'marked source span, not cumulatively retell the Chronicle. It is correct ' +
+    'for a source span to begin mid-project: begin with the first substantive ' +
+    'development actually present inside the marker, not a reconstructed ' +
+    'origin story. Do not infer earlier events from filenames, paths, labels, ' +
+    'or retrospective references. When the marked span reviews or applies ' +
+    'older background, preserve the new act of reviewing or applying it; do ' +
+    'not narrate the older background as though it happened in this span.'
+  );
+}
+
+const SILENT_IDENTITY_SUFFIX =
+  'Apply this identity and attribution guidance silently. Do not quote, ' +
+  'restate, or recite it in the memory. Begin with the substantive record; ' +
+  'mention a provenance seam only where the particular material would ' +
+  'otherwise be ambiguous.';
+
 /**
  * The interstitial text between two summaries in the legacy combined recall
  * answer (`positionedRecallPairs: false`). Hoisted out of
@@ -5498,7 +5556,10 @@ export class AutobiographicalStrategy implements ResettableStrategy {
     const sourceOnlyStartIndex = llmMessages.length;
     llmMessages.push({
       participant: 'Context Manager',
-      content: [{ type: 'text', text: COMPRESSION_MARKER }],
+      content: [{
+        type: 'text',
+        text: this.config.compressionScopeMarkers === true ? SCOPED_COMPRESSION_MARKER : COMPRESSION_MARKER,
+      }],
     });
 
     // ---- 5. Chunk messages raw ----
@@ -5516,11 +5577,14 @@ export class AutobiographicalStrategy implements ResettableStrategy {
     // it asks what reading was like and what was learned, forcing the
     // model to reflect from its own vantage point in agent-first-person.
     const docContext = this.detectDocContext(chunk, ctx);
-    const instructionText = this.applyIdentityReminder(
+    const baseInstructionText = this.applyIdentityReminder(
       docContext
         ? this.getReadingChunkInstruction(chunk, docContext.totalTokens, targetTokens)
         : this.getCompressionInstruction(chunk, targetTokens),
     );
+    const instructionText = this.config.compressionScopeMarkers === true
+      ? applyL1SourceScope(baseInstructionText)
+      : baseInstructionText;
     llmMessages.push({
       participant: 'Context Manager',
       content: [{ type: 'text', text: instructionText }],
@@ -7045,8 +7109,11 @@ export class AutobiographicalStrategy implements ResettableStrategy {
     // pair converges instead of looping. attempts lives on the persisted
     // queue entry; reference-equality on sourceIds scopes this to the
     // queue-driven path.
-    const configuredRecallBudget = mergeSourceOnly ? 0 : (this.config.compressionRecallBudgetTokens ?? 100_000);
-    const mergeRecallBudget = mergeSourceOnly ? 0 : Math.max(
+    // compressionScopeMarkers: a merge consolidates its marked span only, so
+    // earlier summaries are not replayed as recall at all.
+    const mergeNoRecall = mergeSourceOnly || this.config.compressionScopeMarkers === true;
+    const configuredRecallBudget = mergeNoRecall ? 0 : (this.config.compressionRecallBudgetTokens ?? 100_000);
+    const mergeRecallBudget = mergeNoRecall ? 0 : Math.max(
       8_000,
       Math.round(configuredRecallBudget * 0.5 ** Math.min(mergeAttempts, 4)),
     );
@@ -7140,6 +7207,12 @@ export class AutobiographicalStrategy implements ResettableStrategy {
         sources: sourceIds,
       });
     }
+    if (this.config.compressionScopeMarkers === true && !mergeSourceOnly) {
+      llmMessages.push({
+        participant: 'Context Manager',
+        content: [{ type: 'text', text: MERGE_SOURCE_MARKER }],
+      });
+    }
     for (const src of sources) {
       if (refusalFallback) {
         // Emit the source itself as a recall pair, whatever its level.
@@ -7230,6 +7303,9 @@ export class AutobiographicalStrategy implements ResettableStrategy {
             )
           : this.getMergeInstruction(targetLevel, sources, targetTokens),
     );
+    if (this.config.compressionScopeMarkers === true && !mergeSourceOnly) {
+      mergeInstructionText = applyMergeSourceScope(mergeInstructionText);
+    }
     if (mergeSourceOnly) {
       mergeInstructionText += '\n\nAttribution discipline: preserve who made each claim. Do not turn another participant’s diagnosis, promise, operational status, or forecast into your own first-person fact unless the source includes your own direct confirmation. Preserve corrections and uncertainty explicitly.';
     }
@@ -9717,7 +9793,10 @@ export class AutobiographicalStrategy implements ResettableStrategy {
    */
   protected applyIdentityReminder(instruction: string): string {
     const reminder = this.config.identityReminder?.trim();
-    return reminder ? `${instruction}\n\n${reminder}` : instruction;
+    if (!reminder) return instruction;
+    return this.config.compressionScopeMarkers === true
+      ? `${instruction}\n\n${reminder}\n\n${SILENT_IDENTITY_SUFFIX}`
+      : `${instruction}\n\n${reminder}`;
   }
 
   protected getCompressionInstruction(chunk: Chunk, targetTokens: number): string {
