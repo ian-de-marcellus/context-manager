@@ -886,6 +886,11 @@ export interface AutobiographicalConfig {
    * same way automatically. Use for summaries awaiting review.
    */
   mergeHoldSummaryIds?: string[];
+  /**
+   * Operator pause on merge execution: queued merges are neither run nor
+   * dropped, and resume in order once unset. L1 compression is unaffected.
+   */
+  mergePaused?: boolean;
   /** Legacy first-choice target-only merge request. Default false. */
   compressionMergeSourceOnly?: boolean;
   /** Use target-only merge request only on the final persisted merge attempt. Default false. */
@@ -899,6 +904,13 @@ export interface AutobiographicalConfig {
    * from drifting into cumulative retellings of the recalled frontier.
    */
   compressionScopeMarkers?: boolean;
+  /**
+   * With `compressionScopeMarkers`, merges normally replay no earlier recall.
+   * Set true to keep the scope markers but show merges the preceding live
+   * summaries as context (still bounded by `compressionRecallBudgetTokens`
+   * and marked as context, not sources, by the scope rule).
+   */
+  compressionMergeRecall?: boolean;
   /** Token target for each summary at any level (default: 2000) */
   summaryTargetTokens?: number;
   /** Token budget for L3 summaries in select() (default: 30000) */

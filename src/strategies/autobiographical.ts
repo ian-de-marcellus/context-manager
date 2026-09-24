@@ -4134,7 +4134,7 @@ export class AutobiographicalStrategy implements ResettableStrategy {
     const needsCompression = this.chunks.some(
       (c) => !c.compressed && this.isChunkOldEnough(c)
     );
-    const needsMerge = this.config.hierarchical && this.mergeQueue.length > 0;
+    const needsMerge = this.config.hierarchical && this.mergeQueue.length > 0 && this.config.mergePaused !== true;
 
     if ((needsCompression && this.compressionQueue.length > 0) || needsMerge) {
       const parts: string[] = [];
@@ -4184,7 +4184,7 @@ export class AutobiographicalStrategy implements ResettableStrategy {
     // gate merges, otherwise exceeding the cap (e.g. after a manual backfill)
     // permanently deadlocks the drain: too many unmerged L1s trips the cap,
     // which blocks the very merges that would bring the count back down.
-    const hasMerges = this.config.hierarchical === true && this.mergeQueue.length > 0;
+    const hasMerges = this.config.hierarchical === true && this.mergeQueue.length > 0 && this.config.mergePaused !== true;
     const hasCompression = this.compressionQueue.length > 0;
     if (!hasCompression && !hasMerges) return;
     // Only bail when the *sole* available work is L1 compression that the cap
@@ -4296,7 +4296,9 @@ export class AutobiographicalStrategy implements ResettableStrategy {
     // level N-1 with no mergedInto pointers forever. Commit the removal
     // only after the merge succeeds; on failure, the queue keeps its entry
     // and the next tick() retries it.
-    if (this.config.hierarchical && this.mergeQueue.length > 0) {
+    // mergePaused: operator hold on ALL merge execution. The queue is kept
+    // intact (persisted) and resumes where it left off when unpaused.
+    if (this.config.hierarchical && this.mergeQueue.length > 0 && this.config.mergePaused !== true) {
       const merge = this.mergeQueue[0]!;
       this._drainProgress++; // executing a merge is real work, even if a
       // follow-on merge gets enqueued and the queue length nets out unchanged
@@ -7132,8 +7134,11 @@ export class AutobiographicalStrategy implements ResettableStrategy {
     // queue entry; reference-equality on sourceIds scopes this to the
     // queue-driven path.
     // compressionScopeMarkers: a merge consolidates its marked span only, so
-    // earlier summaries are not replayed as recall at all.
-    const mergeNoRecall = mergeSourceOnly || this.config.compressionScopeMarkers === true;
+    // earlier summaries are not replayed as recall at all, unless
+    // compressionMergeRecall asks for them back as context (the scope rule
+    // still marks them as continuity/attribution context, not sources).
+    const mergeNoRecall = mergeSourceOnly ||
+      (this.config.compressionScopeMarkers === true && this.config.compressionMergeRecall !== true);
     const configuredRecallBudget = mergeNoRecall ? 0 : (this.config.compressionRecallBudgetTokens ?? 100_000);
     const mergeRecallBudget = mergeNoRecall ? 0 : Math.max(
       8_000,

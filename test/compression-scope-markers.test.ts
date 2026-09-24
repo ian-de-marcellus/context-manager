@@ -65,7 +65,7 @@ function blockTypes(req: NormalizedRequest): Set<string> {
 }
 
 
-async function build(membrane: unknown, scope: boolean | undefined, identityReminder?: string) {
+async function build(membrane: unknown, scope: boolean | undefined, identityReminder?: string, extra: Record<string, unknown> = {}) {
   const strategy = new ProbeStrategy({
     compressionModel: 'same-model',
     targetChunkTokens: 100,
@@ -76,6 +76,7 @@ async function build(membrane: unknown, scope: boolean | undefined, identityRemi
     mergeThreshold: 99,
     compressionScopeMarkers: scope,
     identityReminder,
+    ...extra,
   } as never);
   const manager = await ContextManager.open({ path: freshPath(), strategy, membrane: membrane as never });
   const ids: string[] = [];
@@ -127,5 +128,16 @@ describe('compressionScopeMarkers', () => {
     await b.strategy.runMerge(2, ['L1-200', 'L1-300'], managerContext(b.manager));
     assert.ok(recallIds(off.calls[0]!).includes('L1-100'), 'default merges still recall earlier summaries');
     assert.doesNotMatch(texts(off.calls[0]!).join('\n'), /MERGE SOURCE SPAN/);
+  });
+
+  it('merge: compressionMergeRecall keeps the span markers and restores earlier recall as context', async () => {
+    const cap = capturingMembrane();
+    const fx = await build(cap.membrane, true, undefined, { compressionMergeRecall: true });
+    await fx.strategy.runMerge(2, ['L1-200', 'L1-300'], managerContext(fx.manager));
+    const req = cap.calls[0]!;
+    assert.ok(recallIds(req).includes('L1-100'), 'earlier summary is visible to the merge');
+    const all = texts(req).join('\n');
+    assert.match(all, /\[BEGIN MERGE SOURCE SPAN/);
+    assert.match(all, /\[END MERGE SOURCE SPAN\]/);
   });
 });
