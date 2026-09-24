@@ -891,6 +891,14 @@ export interface AutobiographicalConfig {
    * dropped, and resume in order once unset. L1 compression is unaffected.
    */
   mergePaused?: boolean;
+  /**
+   * Merge sources listed here are shown to the summarizer as themselves
+   * (recall pairs) instead of being expanded one level deeper; the other
+   * sources in the same merge still expand normally. A targeted form of the
+   * refusal fallback, for a source whose raw span trips a classifier only in
+   * merge framing.
+   */
+  mergeSourceLevelSummaryIds?: string[];
   /** Legacy first-choice target-only merge request. Default false. */
   compressionMergeSourceOnly?: boolean;
   /** Use target-only merge request only on the final persisted merge attempt. Default false. */

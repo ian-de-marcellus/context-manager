@@ -7240,9 +7240,12 @@ export class AutobiographicalStrategy implements ResettableStrategy {
         content: [{ type: 'text', text: MERGE_SOURCE_MARKER }],
       });
     }
+    const sourceLevelIds = new Set(this.config.mergeSourceLevelSummaryIds ?? []);
     for (const src of sources) {
-      if (refusalFallback) {
-        // Emit the source itself as a recall pair, whatever its level.
+      if (refusalFallback || sourceLevelIds.has(src.id)) {
+        // Emit the source itself as a recall pair, whatever its level
+        // (refusal fallback, or an operator-listed source whose one-level-
+        // deeper expansion is known to trip a classifier).
         llmMessages.push({
           participant: 'Context Manager',
           content: [{ type: 'text', text: `[CM] Recall memory ${src.id}.` }],
