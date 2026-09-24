@@ -849,7 +849,50 @@ function stripEmptyTextBlocks(content: ContentBlock[]): ContentBlock[] {
  * turns byte-identical — a follow-up experiment, not a blanket strip removal.
  */
 function stripThinkingBlocks(content: ContentBlock[]): ContentBlock[] {
-  return content.filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking');
+  return content
+    .filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking')
+    .map(skipReplyAsNote);
+}
+
+/**
+ * Present `skip_reply` as what it is, a private end-of-turn note, in RAW
+ * compression input: the call becomes `[private note, not sent] <reason>`
+ * and its `{"skipped":true}` result becomes a plain line. Residents often
+ * write a long first-person reflection as the skip reason; carried as a
+ * tool_use payload with its reasoning stripped (above), it reads to the
+ * classifier as bare model output and trips reasoning_extraction, which
+ * then quarantines every later chunk that carries the span raw. The same
+ * words as a note pass (Librarian, 2026-09-24: chunk 22639 refused as
+ * tool_use, end_turn as a note, canonical framing, no words changed).
+ * Both halves are converted independently, so a pair split across chunks
+ * never leaves an orphaned tool block. Live context is untouched.
+ */
+function skipReplyAsNote(b: ContentBlock): ContentBlock {
+  if (b.type === 'tool_use' && (b as { name?: string }).name === 'skip_reply') {
+    const reason = (b as { input?: { reason?: unknown } }).input?.reason;
+    return { type: 'text', text: `[private note, not sent]${typeof reason === 'string' && reason ? ` ${reason}` : ''}` } as ContentBlock;
+  }
+  if (b.type === 'tool_result' && isSkipReplyResult(b)) {
+    return { type: 'text', text: '(turn ended; nothing sent)' } as ContentBlock;
+  }
+  return b;
+}
+
+function isSkipReplyResult(b: ContentBlock): boolean {
+  const raw = (b as { content?: unknown }).content;
+  const texts = typeof raw === 'string'
+    ? [raw]
+    : Array.isArray(raw) ? raw.map((x) => (x && typeof x === 'object' && typeof (x as { text?: unknown }).text === 'string' ? (x as { text: string }).text : '')) : [];
+  return texts.some((t) => {
+    let v: unknown = t;
+    // The stored result can be JSON, or JSON of a JSON string.
+    for (let i = 0; i < 2 && typeof v === 'string'; i++) {
+      try { v = JSON.parse(v); } catch { return false; }
+    }
+    const r = v as { skipped?: unknown; note?: unknown } | null;
+    return !!r && typeof r === 'object' && r.skipped === true
+      && typeof r.note === 'string' && r.note.startsWith('Turn ended');
+  });
 }
 
 /**

@@ -263,6 +263,48 @@ describe('Compression pipeline: API shape invariants', () => {
     await manager.close();
   });
 
+  it('L1 compression: skip_reply reaches the summarizer as a private note, words intact', async () => {
+    // Librarian, 2026-09-24: a long reflection carried as a skip_reply
+    // tool_use payload tripped reasoning_extraction; the same words as a
+    // note did not. Other tool pairs must stay tool pairs.
+    cleanup();
+    const { membrane, calls } = createValidatingMembrane();
+    const strategy = new AutobiographicalStrategy({
+      compressionModel: TEST_COMPRESSION_MODEL,
+      targetChunkTokens: 80,
+      headWindowTokens: 0,
+      recentWindowTokens: 0,
+      hierarchical: true,
+    });
+    const manager = await ContextManager.open({
+      path: TEST_STORE_PATH,
+      strategy,
+      membrane: membrane as any,
+    });
+    manager.setToolDefinitions([...TEST_TOOLS, { name: 'skip_reply', description: 'end turn silently', inputSchema: { type: 'object' as const } }]);
+    const small = (n: number) => 'word '.repeat(n);
+    const skip = (id: string, reason: string): ContentBlock =>
+      ({ type: 'tool_use', id, name: 'skip_reply', input: { reason } } as ContentBlock);
+    // As stored: the tool's JSON result, itself JSON-encoded as a string.
+    const skipped = (id: string): ContentBlock =>
+      ({ type: 'tool_result', toolUseId: id, content: JSON.stringify(JSON.stringify({ skipped: true, note: 'Turn ended; nothing sent.' })) } as ContentBlock);
+    for (let i = 0; i < 12; i++) {
+      manager.addMessage('user', [t(small(8))]);
+      manager.addMessage('agent', [t(small(6)), u(`A${i}`)]);
+      manager.addMessage('user', [r(`A${i}`)]);
+      manager.addMessage('agent', [skip(`S${i}`, `reflection ${i} ` + small(20))]);
+      manager.addMessage('user', [skipped(`S${i}`)]);
+    }
+    await drain(manager);
+    assert.ok(calls.length > 0, 'expected at least one L1 compression call');
+    const blocks = calls.flatMap((c) => c.messages.flatMap((m) => m.content));
+    assert.ok(!blocks.some((b) => b.type === 'tool_use' && (b as { name?: string }).name === 'skip_reply'), 'skip_reply tool_use reached the summarizer');
+    assert.ok(!blocks.some((b) => b.type === 'tool_result' && String((b as { content?: unknown }).content).includes('skipped')), 'skip result reached the summarizer as a tool_result');
+    assert.ok(blocks.some((b) => b.type === 'text' && /^\[private note, not sent\] reflection \d+ word/.test((b as { text: string }).text)), 'skip reason not carried as a note');
+    assert.ok(blocks.some((b) => b.type === 'tool_use' && (b as { name?: string }).name === 'fn'), 'ordinary tool pairs must be kept');
+    await manager.close();
+  });
+
   it('L2/L3 merge cascade preserves shape across hundreds of summaries', async () => {
     cleanup();
     const { membrane, calls } = createValidatingMembrane();
