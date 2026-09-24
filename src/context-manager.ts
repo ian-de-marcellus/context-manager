@@ -47,6 +47,7 @@ import { ContextLog } from './context-log.js';
 import { filterMessageStoreView, mergeMessageStoreViews } from './message-view.js';
 import { PassthroughStrategy } from './strategies/passthrough.js';
 import { splitMixedToolMessages } from './normalize-tool-messages.js';
+import { moveSkipReasonsToResults } from './skip-reason-view.js';
 import { markStoreBranchSwitch, observeStoreBranch } from './branch-generation.js';
 import type { StoreBranchGeneration } from './branch-generation.js';
 
@@ -710,12 +711,15 @@ export class ContextManager {
     const _t0 = _diag ? Date.now() : 0;
 
     // Get selected entries from strategy
-    const entries = this.strategy.select(
+    const selected = this.strategy.select(
       this.strategyMessageView(),
       this.contextLog.createView(),
       effectiveBudget,
       opts
     );
+    const liveSkipReasonInResult =
+      (this.strategy as unknown as { config?: { liveSkipReasonInResult?: boolean } }).config?.liveSkipReasonInResult === true;
+    const entries = liveSkipReasonInResult ? moveSkipReasonsToResults(selected) : selected;
     if (_diag) console.error(`[cm-cache] compile: select ${Date.now() - _t0}ms (${entries.length} entries)`);
 
     // Convert to NormalizedMessage[]. We split each entry individually

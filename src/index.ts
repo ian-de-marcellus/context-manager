@@ -28,6 +28,7 @@ export { KnowledgeStrategy } from './strategies/knowledge.js';
 
 // Utilities
 export { splitMixedToolMessages, stripUnpairedToolBlocks } from './normalize-tool-messages.js';
+export { moveSkipReasonsToResults, SKIP_REASON_PLACEHOLDER } from './skip-reason-view.js';
 export { resolveEffectiveConfig } from './config-provenance.js';
 export type { ConfigLayer, ConfigResolutionSemantics, EffectiveConfigReport } from './config-provenance.js';
 

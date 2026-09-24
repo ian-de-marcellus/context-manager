@@ -919,6 +919,14 @@ export interface AutobiographicalConfig {
    * and marked as context, not sources, by the scope rule).
    */
   compressionMergeRecall?: boolean;
+  /**
+   * Live view only: keep each past skip_reply call, but show it with a short
+   * placeholder reason and move the full reason into its tool_result as a
+   * quoted note. A long first-person reflection carried as a tool_use payload
+   * can trip reasoning_extraction on every later turn; the same words on the
+   * result side pass, and the resident still sees itself calling the tool.
+   */
+  liveSkipReasonInResult?: boolean;
   /** Token target for each summary at any level (default: 2000) */
   summaryTargetTokens?: number;
   /** Token budget for L3 summaries in select() (default: 30000) */
