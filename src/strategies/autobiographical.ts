@@ -155,7 +155,7 @@ function applyMergeSourceScope(instruction: string): string {
   );
 }
 
-const SILENT_IDENTITY_SUFFIX =
+export const SILENT_IDENTITY_SUFFIX =
   'Apply this identity and attribution guidance silently. Do not quote, ' +
   'restate, or recite it in the memory. Begin with the substantive record; ' +
   'mention a provenance seam only where the particular material would ' +
@@ -1061,6 +1061,7 @@ function defaultsForKeysLeftNullish(
  * L1 (raw→summary) → L2 (merge N L1s) → L3 (merge N L2s)
  * with anti-redundancy filtering and budget carryover.
  */
+
 export class AutobiographicalStrategy implements ResettableStrategy {
   readonly name: string = 'autobiographical';
 
@@ -5662,6 +5663,7 @@ export class AutobiographicalStrategy implements ResettableStrategy {
       docContext
         ? this.getReadingChunkInstruction(chunk, docContext.totalTokens, targetTokens)
         : this.getCompressionInstruction(chunk, targetTokens),
+      this.chunkIsWitnessed(chunk),
     );
     const instructionText = this.config.compressionScopeMarkers === true
       ? applyL1SourceScope(baseInstructionText)
@@ -6362,7 +6364,7 @@ export class AutobiographicalStrategy implements ResettableStrategy {
             const msgs = [
               { participant: 'Context Manager', content: [{ type: 'text', text: COMPRESSION_MARKER }] as ContentBlock[] },
               ...subset.map((m) => ({ participant: m.participant, content: stripThinkingBlocks(m.content) })),
-              { participant: 'Context Manager', content: [{ type: 'text', text: this.applyIdentityReminder(this.getCompressionInstruction(chunk, target)) }] as ContentBlock[] },
+              { participant: 'Context Manager', content: [{ type: 'text', text: this.applyIdentityReminder(this.getCompressionInstruction(chunk, target), this.chunkIsWitnessed(chunk)) }] as ContentBlock[] },
             ];
             const cleaned = stripUnpairedToolBlocks(this.collapseConsecutiveMessages(splitMixedToolMessages(msgs)));
             return {
@@ -7415,6 +7417,10 @@ export class AutobiographicalStrategy implements ResettableStrategy {
               targetTokens,
             )
           : this.getMergeInstruction(targetLevel, sources, targetTokens),
+      // Mixed inherited/live merges are NOT witnessed: they carry the live
+      // reminder, and source attribution inside them is preserved by the
+      // sources' own witnessed stamps.
+      sources.length > 0 && sources.every((s) => s.witnessed),
     );
     if (this.config.compressionScopeMarkers === true && !mergeSourceOnly) {
       mergeInstructionText = applyMergeSourceScope(mergeInstructionText);
@@ -9929,16 +9935,24 @@ export class AutobiographicalStrategy implements ResettableStrategy {
 
   /**
    * Append the configured identity reminder (if any) to a compression or
-   * merge instruction. Applied at the two llmMessages call sites (L1 chunk
-   * and merge) rather than inside the format functions so subclass
+   * merge instruction. Applied at the llmMessages call sites (L1 chunk,
+   * split L1, and merge) rather than inside the format functions so subclass
    * instruction overrides are covered too. See
    * `AutobiographicalConfig.identityReminder` for rationale (identity flip
    * over pure-witness chunks in multi-resident channels).
+   *
+   * `witnessed`: the target is WHOLLY inherited record (an L1 chunk entirely
+   * before witnessedBeforeSequence, or a merge whose every source is
+   * witnessed). Such targets use `witnessedIdentityReminder` when one is
+   * configured; everything else, including mixed inherited/live merges,
+   * uses `identityReminder`.
    */
-  protected applyIdentityReminder(instruction: string): string {
-    const reminder = this.config.identityReminder?.trim();
+  protected applyIdentityReminder(instruction: string, witnessed = false): string {
+    const reminder = (witnessed && this.config.witnessedIdentityReminder?.trim())
+      ? this.config.witnessedIdentityReminder.trim()
+      : this.config.identityReminder?.trim();
     if (!reminder) return instruction;
-    return this.config.compressionScopeMarkers === true
+    return this.config.compressionScopeMarkers === true || this.config.identityReminderSilent === true
       ? `${instruction}\n\n${reminder}\n\n${SILENT_IDENTITY_SUFFIX}`
       : `${instruction}\n\n${reminder}`;
   }
