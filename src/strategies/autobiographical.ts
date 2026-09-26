@@ -5032,7 +5032,9 @@ export class AutobiographicalStrategy implements ResettableStrategy {
       const line =
         `[plan-vs-actual] planned=${planned} actual=${actual} delta=${delta >= 0 ? '+' : ''}${delta}` +
         ` (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%) budgetMet=${m?.budgetMet} exhausted=${m?.exhausted}` +
-        ` moves=${m?.moves} solver=${m?.solver}`;
+        ` moves=${m?.moves} solver=${m?.solver}` +
+        (this._lastKvStable?.lastPlan()?.coldAdopt ? ' cache=cold-adopt' : '') +
+        (this._lastKvStable?.lastPlan()?.deferred ? ' cache=deferred' : '');
       if (loud) console.warn(`${line} — emitter overran the plan; the overrun is paid by the recent window`);
       else console.error(line);
     }
@@ -8711,6 +8713,26 @@ export class AutobiographicalStrategy implements ResettableStrategy {
 
   private _calibrationArmed = false;
 
+  /** Host-reported prompt-cache state for the next compile (kvStableCacheAware). */
+  private _promptCacheState: 'cold' | 'warm' | undefined = undefined;
+
+  /**
+   * Tell the strategy whether the provider's prompt cache for this agent is
+   * cold (expired: the next request rewrites the prefix anyway) or warm,
+   * before a compile. `undefined` = unknown (classic behaviour). Only read
+   * when `kvStableCacheAware` is on.
+   */
+  setPromptCacheState(state: 'cold' | 'warm' | undefined): void {
+    this._promptCacheState = state;
+  }
+
+  /** True when the last compile held the layout to defer a voluntary refold
+   *  while the cache was warm (kvStableCacheAware). A keepalive may then let
+   *  the cache lapse, so the refold lands on a cold compile at no extra cost. */
+  isRefoldDeferred(): boolean {
+    return this._lastKvStable?.lastPlan()?.deferred === true;
+  }
+
   private _calibration = 1;
   private _calibrationLoaded = false;
 
@@ -9111,6 +9133,9 @@ export class AutobiographicalStrategy implements ResettableStrategy {
         goalTotalTokens: preparedBudget?.totalBudget,
         goalTargetTokens: preparedBudget?.targetBudget,
         strictReach: preparedBudget !== undefined,
+        ...(this.config.kvStableCacheAware
+          ? { cacheCold: this._promptCacheState === 'cold', deferWhenWarm: this._promptCacheState === 'warm' }
+          : {}),
       });
       this._lastKvStable = strategy;
       return new Picker(strategy);

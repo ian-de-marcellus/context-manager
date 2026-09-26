@@ -733,6 +733,19 @@ export interface ControlPlanParams {
    *  windowTokens (a rendered layout never exceeds W, so the default trust
    *  region never binds). */
   reachTokens?: number;
+  /**
+   * Prompt-cache awareness (opt-in; both unset = the classic ladder).
+   * `cacheCold`: the provider's cache for this prefix is known to have
+   * expired, so the next request rewrites it whatever the plan: perturbation
+   * is free, and the ideal cut is adopted outright.
+   * `deferWhenWarm`: the cache is warm, so VOLUNTARY changes (expanding into
+   * headroom, quality realignment) are deferred by holding the carried
+   * frontier, and the plan reports `deferred`; a required shed (over
+   * foldAt) proceeds as usual. The deferred change lands on the next cold
+   * compile, where it costs nothing extra.
+   */
+  cacheCold?: boolean;
+  deferWhenWarm?: boolean;
   /** Never override P for quality while preparing a future window. If the
    * smallest realizable change exceeds P, hold and report a pace floor. */
   strictReach?: boolean;
@@ -786,6 +799,11 @@ export interface ControlPlan {
   override?: 'bootstrap' | 'infeasible' | 'quality-gap';
   /** No realizable progress fits inside a strict trust region. */
   blocked?: 'reach-floor' | 'target-floor';
+  /** The ideal was adopted because the cache was cold (`cacheCold`). */
+  coldAdopt?: boolean;
+  /** A voluntary change was deferred because the cache was warm
+   *  (`deferWhenWarm`): the carried frontier was held instead. */
+  deferred?: boolean;
 }
 
 /**
@@ -933,6 +951,10 @@ export function planControlledFrontier(
   // 2. Bootstrap: nothing carried → nothing to preserve; pure relevance solve.
   if (!carriedNonEmpty && p.previous.size === 0) { diagBranch('bootstrap'); return adoptIdeal('bootstrap'); }
 
+  // 2b. Cold cache: the next request rewrites the prefix anyway, so any
+  //     perturbation is free. Take the ideal now.
+  if (p.cacheCold) { diagBranch('cold-adopt'); return { ...adoptIdeal(), coldAdopt: true }; }
+
   // 3. Dead band with self-heal: hold the carried frontier only when it is
   //    feasible, in band, AND not certifiably misallocated.
   const carriedLoss = relevanceLoss(carried, ordered, p.rawZone, caps);
@@ -945,6 +967,21 @@ export function planControlledFrontier(
       ...flags(carried), // vs itself → both false unless projection moved it
       escalated: false,
       perturbation: 0,
+    };
+  }
+
+  // 3b. Warm cache: defer any voluntary change (the carried frontier is
+  //     feasible and not over foldAt, so nothing forces a shed). Not while
+  //     preparing a budget transition (strictReach), which sets its own pace.
+  if (p.deferWhenWarm && !strictReach && carriedTokens <= p.foldAtTokens && carriedTokens <= p.windowTokens) {
+    diagBranch(`defer-warm (carried=${carriedTokens})`);
+    return {
+      resolutions: carried,
+      tokens: carriedTokens,
+      ...flags(carried),
+      escalated: false,
+      perturbation: 0,
+      deferred: true,
     };
   }
 

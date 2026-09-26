@@ -158,3 +158,67 @@ test('foldDepthCap is monotone non-decreasing in age and capped', () => {
     prev = cap;
   }
 });
+
+// Prompt-cache-aware timing (opt-in): refold when the cache is cold anyway,
+// defer voluntary refolds while it is warm (Ian + Opus 5.5, 2026-09-26).
+test('cache-aware: warm defers a voluntary expansion; cold adopts it; a required shed still happens warm', () => {
+  const inputs = session();
+  const tree = new SummaryTree(inputs);
+  const now = 71;
+  const folded = planControlledFrontier(inputs, tree, {
+    previous: new Map(), foldAtTokens: 18_000, expandAtTokens: 0, targetTokens: 18_000,
+    windowTokens: 72_000, rawZone: new Set(), now, mergeThreshold: 6,
+  });
+  const roomy = {
+    previous: folded.resolutions, foldAtTokens: 50_000, expandAtTokens: 50_000, targetTokens: 50_000,
+    windowTokens: 72_000, rawZone: new Set<string>(), now, mergeThreshold: 6,
+  };
+  // Classic: expands into the headroom (a prefix change).
+  const classic = planControlledFrontier(inputs, tree, roomy);
+  assert.ok(classic.expanded && classic.perturbation > 0);
+
+  // Warm: the same voluntary expansion is deferred, zero perturbation, flagged.
+  const warm = planControlledFrontier(inputs, tree, { ...roomy, deferWhenWarm: true });
+  assert.equal(warm.deferred, true);
+  assert.equal(warm.perturbation, 0);
+  assert.ok(!warm.expanded && !warm.folded);
+  assert.equal(warm.tokens, folded.tokens);
+
+  // Cold: the change lands (same frontier as classic), marked coldAdopt.
+  const cold = planControlledFrontier(inputs, tree, { ...roomy, cacheCold: true });
+  assert.equal(cold.coldAdopt, true);
+  assert.equal(cold.deferred, undefined);
+  assert.ok(cold.expanded);
+
+  // A required shed (carried over foldAt) is NOT deferred, warm or not.
+  const raw = planControlledFrontier(inputs, tree, {
+    previous: new Map(), foldAtTokens: 72_000, expandAtTokens: 0, targetTokens: 72_000,
+    windowTokens: 72_000, rawZone: new Set(), now, mergeThreshold: 6,
+  });
+  const mustShed = planControlledFrontier(inputs, tree, {
+    previous: raw.resolutions, foldAtTokens: 30_000, expandAtTokens: 20_000, targetTokens: 25_000,
+    windowTokens: 72_000, rawZone: new Set(), now, mergeThreshold: 6, deferWhenWarm: true,
+  });
+  assert.ok(mustShed.folded, 'over foldAt: sheds even when warm');
+  assert.notEqual(mustShed.deferred, true);
+  assert.ok(mustShed.tokens <= 30_000, `back under foldAt: ${mustShed.tokens}`);
+});
+
+test('cache-aware: an in-band hold is a plain hold, not a deferral; unset state = classic ladder', () => {
+  const inputs = session();
+  const tree = new SummaryTree(inputs);
+  const now = 71;
+  const base = planControlledFrontier(inputs, tree, {
+    previous: new Map(), foldAtTokens: 50_000, expandAtTokens: 0, targetTokens: 50_000,
+    windowTokens: 72_000, rawZone: new Set(), now, mergeThreshold: 6,
+  });
+  const band = {
+    previous: base.resolutions, foldAtTokens: 60_000, expandAtTokens: 40_000, targetTokens: 50_000,
+    windowTokens: 72_000, rawZone: new Set<string>(), now, mergeThreshold: 6,
+  };
+  const held = planControlledFrontier(inputs, tree, { ...band, deferWhenWarm: true });
+  assert.equal(held.perturbation, 0);
+  assert.equal(held.deferred, undefined, 'nothing was waiting: not a deferral');
+  const classic = planControlledFrontier(inputs, tree, band);
+  assert.deepEqual([...classic.resolutions], [...held.resolutions]);
+});

@@ -1230,6 +1230,17 @@ export interface AutobiographicalConfig {
   kvStableQualityGapRatio?: number;
 
   /**
+   * kv-stable only, opt-in: time memory refolds to the prompt cache. When the
+   * host reports the cache cold (`setPromptCacheState('cold')`: it expired,
+   * so the next request rewrites the prefix anyway), the solver adopts its
+   * ideal layout for free. When warm, voluntary changes are deferred (the
+   * current layout is held; `isRefoldDeferred()` reports it) until a cold
+   * compile; required sheds (over the wall) proceed as usual. With no state
+   * reported, behaviour is unchanged. Default false.
+   */
+  kvStableCacheAware?: boolean;
+
+  /**
    * Slack ratio (hysteresis) for the picker. The picker folds until total
    * tokens ≤ budget * (1 - slack), and stays quiet while between slack
    * and budget. Default 0.1.

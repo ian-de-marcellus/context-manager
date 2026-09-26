@@ -62,6 +62,9 @@ export interface KvStableOptions {
   goalTargetTokens?: number;
   /** Enforce reach as a hard transition pace instead of allowing quality overrides. */
   strictReach?: boolean;
+  /** Prompt-cache awareness for this solve (see ControlPlanParams). */
+  cacheCold?: boolean;
+  deferWhenWarm?: boolean;
 }
 
 export class KvStableStrategy implements FoldingSolver {
@@ -152,6 +155,8 @@ export class KvStableStrategy implements FoldingSolver {
       reachTokens: this.opts.reachTokens,
       strictReach: this.opts.strictReach,
       qualityGapRatio: this.opts.qualityGapRatio,
+      cacheCold: this.opts.cacheCold,
+      deferWhenWarm: this.opts.deferWhenWarm,
       rawZone,
       frozen,
       fixedLevels,
